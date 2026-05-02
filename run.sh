@@ -5,9 +5,6 @@ echo "==================================================="
 echo "   HGNAS Simulation on Jetson Edge Device          "
 echo "==================================================="
 
-# Activate the virtual environment
-source ~/linux_workspace/gnn_env/bin/activate
-
 # Execute the search
 echo "[INFO] Running Architecture Search..."
 python hgnas_search.py

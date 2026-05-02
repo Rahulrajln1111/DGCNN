@@ -6,3 +6,26 @@ stack = "BEST_EFFORT_FALLBACK"
 [nix]
 channel = "stable-25_05"
 packages = ["cacert", "cairo", "ffmpeg-full", "freetype", "gdb", "ghostscript", "glibcLocales", "gobject-introspection", "gtk3", "libcxx", "libjpeg_turbo", "libpng", "libxcrypt", "ncurses", "pkg-config", "qhull", "tcl", "tk", "which", "xsimd"]
+
+[workflows]
+runButton = "Project"
+
+[[workflows.workflow]]
+name = "Project"
+mode = "parallel"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Start application"
+
+[[workflows.workflow]]
+name = "Start application"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "bash run.sh"
+
+[workflows.workflow.metadata]
+outputType = "console"
