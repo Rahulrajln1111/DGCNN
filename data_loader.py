@@ -5,12 +5,47 @@ Uses the dataset already downloaded by get_data.py.
 Returns PyG DataLoader objects for training and validation.
 """
 
+import os
+import shutil
+
 import torch
 from torch_geometric.datasets import ModelNet
 import torch_geometric.transforms as T
-from torch_geometric.loader import DataLoader
+
+try:
+    from torch_geometric.loader import DataLoader
+except ImportError:
+    from torch_geometric.data import DataLoader
 
 import config as C
+
+
+def _clear_processed(root: str):
+    """Remove pre-processed cache so torch_geometric re-builds it."""
+    processed_dir = os.path.join(root, "processed")
+    if os.path.isdir(processed_dir):
+        print(f"[Data] Removing stale processed cache at {processed_dir} ...")
+        shutil.rmtree(processed_dir)
+
+
+def _load_modelnet(root, train, transform, pre_transform, retry=True):
+    """
+    Load ModelNet, automatically clearing the processed cache if the saved
+    format is incompatible with the installed torch_geometric version
+    (ValueError: too many values to unpack).
+    """
+    try:
+        return ModelNet(
+            root=root, name="10", train=train,
+            transform=transform, pre_transform=pre_transform,
+        )
+    except ValueError as e:
+        if "too many values to unpack" in str(e) and retry:
+            print(f"[Data] Cached files incompatible with this torch_geometric "
+                  f"version ({e}). Clearing cache and re-processing ...")
+            _clear_processed(root)
+            return _load_modelnet(root, train, transform, pre_transform, retry=False)
+        raise
 
 
 def get_loaders(
@@ -34,14 +69,10 @@ def get_loaders(
     transform     = T.SamplePoints(num_points)
 
     print(f"[Data] Loading ModelNet10 from {root} ...")
-    train_full = ModelNet(
-        root=root, name="10", train=True,
-        transform=transform, pre_transform=pre_transform,
-    )
-    test_set = ModelNet(
-        root=root, name="10", train=False,
-        transform=transform, pre_transform=pre_transform,
-    )
+    train_full = _load_modelnet(root, train=True,
+                                transform=transform, pre_transform=pre_transform)
+    test_set   = _load_modelnet(root, train=False,
+                                transform=transform, pre_transform=pre_transform)
 
     # Optional subsample for quick CPU demo
     total = len(train_full)
