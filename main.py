@@ -117,21 +117,17 @@ def main():
     print(f"  Upper half agg   : {upper_func.positions[0].agg_op}")
 
     # ── 5. Stage 2 – Operation Search ────────────────────────────────────────
-    # Re-initialise and re-train supernet with fixed function set
-    print("\n[Main] Re-initialising supernet with fixed function set ...")
-    supernet2 = GNNSuperNet(
-        num_positions=C.NUM_POSITIONS,
-        in_channels  =C.IN_CHANNELS,
-        num_classes  =C.NUM_CLASSES,
-        hidden_dim   =C.HIDDEN_DIM,
-    ).to(device)
-    supernet2 = train_supernet(
-        supernet2, train_loader, val_loader, design_space,
-        epochs=args.supernet_epochs, device=device,
+    # FIXED: Reuse the trained supernet from Stage 1 instead of re-initialising
+    # from scratch.  Fine-tune for a few more epochs with the fixed function set.
+    print("\n[Main] Fine-tuning supernet with fixed function set ...")
+    finetune_epochs = max(1, args.supernet_epochs // 2)
+    supernet = train_supernet(
+        supernet, train_loader, val_loader, design_space,
+        epochs=finetune_epochs, device=device,
     )
 
     best_arch = operation_search(
-        supernet2, val_loader, design_space, predictor,
+        supernet, val_loader, design_space, predictor,
         upper_func=upper_func, lower_func=lower_func,
         pop_size  =C.EA_POP_SIZE,
         max_iter  =args.ea_iter_s2,
@@ -143,7 +139,7 @@ def main():
 
     # ── 6. Final Evaluation ───────────────────────────────────────────────────
     print("\n[Main] Evaluating best architecture on test set ...")
-    test_acc = evaluate_architecture(supernet2, best_arch, test_loader, device)
+    test_acc = evaluate_architecture(supernet, best_arch, test_loader, device)
     lat      = predictor.predict_latency(best_arch)
     mem      = predictor.predict_peak_memory(best_arch)
 

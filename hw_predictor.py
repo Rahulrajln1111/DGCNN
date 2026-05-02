@@ -44,7 +44,7 @@ _COMBINE_LAT = {8: 0.3, 16: 0.5, 32: 0.8, 64: 1.2, 128: 1.8, 256: 3.0}
 _CONNECT_LAT = {"identity": 0.0, "skip": 0.3}
 
 
-def simulate_latency(architecture: Architecture, num_nodes: int = 1024) -> float:
+def simulate_latency(architecture: Architecture, num_nodes: int = C.NUM_POINTS) -> float:
     """
     Simulated per-position latency in ms (Jetson Nano approximation).
     Replace with real on-device profiling for production use.
@@ -65,7 +65,7 @@ def simulate_latency(architecture: Architecture, num_nodes: int = 1024) -> float
 GLOBAL_NODE_DIM = 16   # graph-level properties encoded into global node
 
 
-def _graph_properties_to_vec(num_nodes: int = 1024, k: int = C.KNN_K) -> torch.Tensor:
+def _graph_properties_to_vec(num_nodes: int = C.NUM_POINTS, k: int = C.KNN_K) -> torch.Tensor:
     """Encode dataset graph properties into a 16-dim vector (global node)."""
     density = (num_nodes * k) / (num_nodes ** 2 + 1e-6)
     v = torch.zeros(GLOBAL_NODE_DIM)
@@ -76,7 +76,7 @@ def _graph_properties_to_vec(num_nodes: int = 1024, k: int = C.KNN_K) -> torch.T
     return v
 
 
-def arch_to_pyg_graph(architecture: Architecture, num_nodes: int = 1024) -> Data:
+def arch_to_pyg_graph(architecture: Architecture, num_nodes: int = C.NUM_POINTS) -> Data:
     """
     Convert an Architecture to a PyG Data graph for the predictor.
 

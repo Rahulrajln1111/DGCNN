@@ -87,24 +87,26 @@ def evaluate_supernet(
     loader,
     design_space : DesignSpace,
     device       : str = C.TORCH_DEVICE,
-    n_archs      : int = 5,
+    n_archs      : int = 1,
 ) -> float:
     """
-    Evaluate a supernet by averaging accuracy over n_archs random
-    sampled architectures (approximates expected accuracy).
+    Evaluate a supernet using a single consistent random architecture.
+
+    Using ONE architecture for the entire evaluation pass gives a clean
+    accuracy signal.  Averaging over multiple random architectures (as
+    was done before) destroys the signal because different sub-networks
+    produce conflicting predictions.
     """
     supernet.eval()
     total_correct, total_samples = 0, 0
 
+    # Use ONE architecture consistently across all batches
+    arch = design_space.random_architecture()
+
     for batch in loader:
         batch  = batch.to(device)
-        # Average prediction over multiple architectures
-        logits_sum = None
-        for _ in range(n_archs):
-            arch   = design_space.random_architecture()
-            logits = supernet(batch, arch)
-            logits_sum = logits if logits_sum is None else logits_sum + logits
-        pred = logits_sum.argmax(dim=1)
+        logits = supernet(batch, arch)
+        pred   = logits.argmax(dim=1)
         total_correct  += (pred == batch.y.view(-1)).sum().item()
         total_samples  += batch.num_graphs
 

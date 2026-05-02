@@ -83,7 +83,7 @@ def function_search(
             best_score = scored[0][0]
             best_arch  = scored[0][1]
 
-        if verbose and it % 10 == 0:
+        if verbose and (it % 5 == 0 or it == 1):
             print(f"  Iter {it:3d}/{max_iter} | Best Acc: {best_score:.2f}%")
 
         # EA: keep top half, mutate/crossover for the rest
@@ -204,7 +204,7 @@ def operation_search(
             best_score = top_score
             best_arch  = top_arch
 
-        if verbose and it % 10 == 0:
+        if verbose and (it % 5 == 0 or it == 1):
             print(f"  Iter {it:3d}/{max_iter} | Best Score: {best_score:.4f} | "
                   f"Acc: {top_acc:.1f}% | Lat: {top_lat:.1f}ms | Mem: {top_mem:.1f}MB")
 

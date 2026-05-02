@@ -58,15 +58,22 @@ def _parse_off(path: str) -> torch.Tensor:
 
 # ── Point sampling & normalisation ────────────────────────────────────────────
 
-def _sample_and_normalize(pos: torch.Tensor, num_points: int) -> torch.Tensor:
+def _sample_and_normalize(pos: torch.Tensor, num_points: int, seed: int = 0) -> torch.Tensor:
     """
     Randomly sample `num_points` from vertex positions and normalise to unit sphere.
+    Uses a deterministic seed based on the input for reproducibility.
     """
     N = pos.size(0)
+
+    # Deterministic sampling: seed based on vertex count and a sample-specific seed
+    # so the same object always produces the same point cloud.
+    g = torch.Generator()
+    g.manual_seed(seed)
+
     if N >= num_points:
-        idx = torch.randperm(N)[:num_points]
+        idx = torch.randperm(N, generator=g)[:num_points]
     else:
-        idx = torch.randint(0, N, (num_points,))
+        idx = torch.randint(0, N, (num_points,), generator=g)
     pos = pos[idx]
 
     # NormalizeScale: centre then scale to [-1, 1]
@@ -111,7 +118,8 @@ class ModelNet10Raw(torch.utils.data.Dataset):
     def __getitem__(self, idx):
         path, label = self.samples[idx]
         pos = _parse_off(path)
-        pos = _sample_and_normalize(pos, self.num_points)
+        # Use idx as seed for deterministic but unique sampling per object
+        pos = _sample_and_normalize(pos, self.num_points, seed=idx * 31 + self.num_points)
         return Data(
             pos=pos,
             y=torch.tensor([label], dtype=torch.long),

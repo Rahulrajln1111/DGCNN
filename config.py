@@ -13,7 +13,7 @@ MEMORY_CONSTRAINT_MB   = 600.0   # MB  – conservative limit for Jetson Nano
 # ─────────────────────────────────────────────
 #  Design space
 # ─────────────────────────────────────────────
-NUM_POSITIONS = 8           # balanced: 8 positions (paper uses 12)
+NUM_POSITIONS = 6           # balanced: 6 positions for Jetson Nano
 
 # Sample operations
 SAMPLE_OPS = ["knn", "random"]
@@ -31,7 +31,8 @@ MESSAGE_TYPES   = [
 ]
 
 # Combine: MLP output hidden dimension choices
-COMBINE_DIMS = [8, 16, 32, 64, 128, 256]
+# Removed 8 (too small, underfits) and 256 (too large for 4GB RAM)
+COMBINE_DIMS = [16, 32, 64, 128]
 
 # Connect: residual/skip options
 CONNECT_OPS = ["identity", "skip"]
@@ -41,14 +42,14 @@ CONNECT_OPS = ["identity", "skip"]
 # ─────────────────────────────────────────────
 IN_CHANNELS  = 3    # xyz coordinates
 NUM_CLASSES  = 10   # ModelNet10
-HIDDEN_DIM   = 64   # supernet hidden dim (balanced: 2× capacity)
-KNN_K        = 8    # neighbours for KNN sampling (richer graph structure)
+HIDDEN_DIM   = 64   # supernet hidden dim
+KNN_K        = 8    # neighbours for KNN sampling
 
 SUPERNET_EPOCHS      = 30    # one-shot pre-training epochs
 SUPERNET_LR          = 1e-3
-SUPERNET_BATCH_SIZE  = 2     # reduced for 4 GB RAM
+SUPERNET_BATCH_SIZE  = 8     # increased from 2 (safe with fixes for 4GB RAM)
 SUPERNET_WEIGHT_DECAY= 1e-4
-NUM_POINTS           = 128   # points sampled per object (4× richer geometry)
+NUM_POINTS           = 256   # points sampled per object (increased from 128 for better geometry)
 
 # Whether to use static (pre-computed once) KNN graphs during training.
 # Faster on CPU (Jetson Nano), trades some accuracy for speed.
