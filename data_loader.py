@@ -134,7 +134,7 @@ def get_loaders(
     root        : str   = C.DATA_ROOT,
     num_points  : int   = C.NUM_POINTS,
     batch_size  : int   = C.SUPERNET_BATCH_SIZE,
-    val_split   : float = 0.1,
+    val_split   : float = 0.15,
     max_samples : int   = 0,
 ):
     """

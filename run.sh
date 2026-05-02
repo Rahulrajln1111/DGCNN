@@ -36,42 +36,47 @@ fi
 #  FULL            – full paper settings, needs ~8+ GB, best results
 # ─────────────────────────────────────────────────────────────────────
 
-# --- MICRO RUN (default – fastest possible, ~3-5 min on 4 GB Jetson Nano) ---
+# --- MICRO RUN (fastest possible – ~3-5 min, ~19% accuracy, debugging only) ---
+# python main.py \
+#     --supernet-epochs    2   \
+#     --predictor-samples  50  \
+#     --predictor-epochs   10  \
+#     --ea-iter-s1         3   \
+#     --ea-iter-s2         5   \
+#     --max-samples        100 \
+#     --lat-constraint     120 \
+#     --mem-constraint     600
+
+# --- BALANCED RUN (default – ~20-30 min on Jetson Nano, ~45-60% accuracy) ---
+# Key changes vs MICRO:
+#   max-samples 600   → 510 train + 90 val (was 90 train + 10 val)
+#   supernet-epochs 15 → 7.5× more training
+#   ea-iter-s1/s2 10/20 → better search exploration
+#   NUM_POINTS=128, HIDDEN_DIM=64, KNN_K=8 set in config.py
 python main.py \
-    --supernet-epochs    2   \
-    --predictor-samples  50  \
-    --predictor-epochs   10  \
-    --ea-iter-s1         3   \
-    --ea-iter-s2         5   \
-    --max-samples        100 \
+    --supernet-epochs    15  \
+    --predictor-samples  150 \
+    --predictor-epochs   20  \
+    --ea-iter-s1         10  \
+    --ea-iter-s2         20  \
+    --max-samples        600 \
     --lat-constraint     120 \
     --mem-constraint     600
 
-# --- TINY RUN (uncomment – ~10-15 min, slightly better results) ---
-# python main.py \
-#     --supernet-epochs    5   \
-#     --predictor-samples  100 \
-#     --predictor-epochs   15  \
-#     --ea-iter-s1         5   \
-#     --ea-iter-s2         10  \
-#     --max-samples        200 \
-#     --lat-constraint     120 \
-#     --mem-constraint     600
-
-# --- DEMO RUN (uncomment – ~5 min, needs ~6 GB RAM) ---
-# python main.py \
-#     --supernet-epochs    5   \
-#     --predictor-samples  200 \
-#     --predictor-epochs   30  \
-#     --ea-iter-s1         10  \
-#     --ea-iter-s2         20  \
-#     --max-samples        400 \
-#     --lat-constraint     120 \
-#     --mem-constraint     600
-
-# --- FULL RUN (uncomment – best results, needs ~8 GB RAM) ---
+# --- STRONG RUN (uncomment – ~60-90 min on Jetson Nano, ~65-75% accuracy) ---
 # python main.py \
 #     --supernet-epochs    30  \
+#     --predictor-samples  500 \
+#     --predictor-epochs   40  \
+#     --ea-iter-s1         25  \
+#     --ea-iter-s2         50  \
+#     --max-samples        1500\
+#     --lat-constraint     120 \
+#     --mem-constraint     600
+
+# --- FULL RUN (uncomment – best results, ~80%+, several hours on Jetson Nano) ---
+# python main.py \
+#     --supernet-epochs    50  \
 #     --predictor-samples  2000\
 #     --predictor-epochs   50  \
 #     --ea-iter-s1         50  \

@@ -1,0 +1,68 @@
+c$ ./run.sh 
+============================================================
+  HGNAS – Hardware-Aware GNN Architecture Search
+  Target Device : Jetson Nano
+  Dataset       : ModelNet10
+============================================================
+============================================================
+  HGNAS – Hardware-Aware GNN Architecture Search
+  Target  : jetson_nano
+  Dataset : ModelNet10
+  Compute : cuda
+  Lat ≤ 120.0ms  |  Mem ≤ 600.0MB
+============================================================
+[Data] Loading ModelNet10 from ./data/ModelNet10 (direct .off reader) ...
+[Data] Train: 90 | Val: 10 | Test: 522
+[HWPredictor] Generating 50 architecture samples...
+[HWPredictor] Training latency predictor for 10 epochs...
+  Epoch  10/10 | train MAPE: 0.3060 | val MAPE: 0.1140
+[HWPredictor] Training complete.
+[Trainer] Pre-training supernet for 2 epochs on cuda ...
+  Epoch   1/2 | Loss: 2.0884 | Train Acc: 14.4% | Val Acc: 10.0%
+  Epoch   2/2 | Loss: 1.7160 | Train Acc: 31.1% | Val Acc: 10.0%
+
+[Main] Supernet saved → 'supernet_weights.pt'
+
+[Stage 1] Function Search ...
+[Stage 1] Done. Best Val Acc: 40.00%
+
+[Main] Optimal function set determined.
+  Upper half sample: random
+  Upper half agg   : ('sum', 'tgt_rel')
+
+[Main] Re-initialising supernet with fixed function set ...
+[Trainer] Pre-training supernet for 2 epochs on cuda ...
+  Epoch   1/2 | Loss: 2.0550 | Train Acc: 28.9% | Val Acc: 10.0%
+  Epoch   2/2 | Loss: 1.7903 | Train Acc: 36.7% | Val Acc: 10.0%
+
+[Stage 2] Operation Search ...
+[Stage 2] Results logged to 'search_results.csv'
+[Stage 2] Done. Best Score: 9.8364
+
+[Main] Evaluating best architecture on test set ...
+
+============================================================
+  HGNAS Search Complete!
+  Test Accuracy   : 19.16%
+  Predicted Lat.  : 38.05 ms
+  Predicted Mem.  : 6.03 MB
+  Best Architecture Encoding:
+    Pos  0: sample=random  agg=(sum ,tgt_rel )  dim=128  connect=skip
+    Pos  1: sample=knn     agg=(min ,src_rel )  dim=  8  connect=skip
+    Pos  2: sample=knn     agg=(sum ,full    )  dim=  8  connect=identity
+    Pos  3: sample=knn     agg=(sum ,full    )  dim= 64  connect=identity
+    Pos  4: sample=knn     agg=(mean,source  )  dim=128  connect=skip
+    Pos  5: sample=random  agg=(max ,src_rel )  dim=  8  connect=skip
+============================================================
+
+[Main] Generating Pareto-front plots ...
+[Plot] Saved → 'hgnas_pareto_front.png'
+[Main] Plot saved → 'hgnas_pareto_front.png'
+============================================================
+  Done!  Outputs:
+    search_results.csv     – all valid architectures found
+    hgnas_pareto_front.png – Pareto-front plots
+    supernet_weights.pt    – trained supernet checkpoint
+    predictor_weights.pt   – trained HW predictor checkpoint
+============================================================
+(gnn_env) gnnedge@gnnedge-desktop:~/linux_workspace/src$ 
