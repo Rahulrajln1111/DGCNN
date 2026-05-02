@@ -1,21 +1,17 @@
 """
 ModelNet10 data loading for HGNAS.
 
-Uses the dataset already downloaded by get_data.py.
-Returns PyG DataLoader objects for training and validation.
-
-NOTE: We intentionally do NOT use pre_transform (which triggers the slow
-"Processing..." step that can hang on Jetson Nano). NormalizeScale is applied
-at runtime instead — slightly slower per batch but avoids the multi-minute
-disk processing stage entirely.
+Loads .off files DIRECTLY — completely bypasses torch_geometric's
+InMemoryDataset / Processing... pipeline which hangs on Jetson Nano.
+No disk caching, no "Processing..." message, starts instantly.
 """
 
 import os
-import shutil
+import glob
 
 import torch
-from torch_geometric.datasets import ModelNet
-import torch_geometric.transforms as T
+import torch.utils.data
+from torch_geometric.data import Data
 
 try:
     from torch_geometric.loader import DataLoader
@@ -24,34 +20,115 @@ except ImportError:
 
 import config as C
 
+# ModelNet10 class name → integer label (alphabetical order)
+CLASSES = [
+    "bathtub", "bed", "chair", "desk", "dresser",
+    "monitor", "night_stand", "sofa", "table", "toilet",
+]
+CLASS_TO_IDX = {c: i for i, c in enumerate(CLASSES)}
 
-def _clear_processed(root: str):
-    """Remove pre-processed cache so torch_geometric does not try to load it."""
-    processed_dir = os.path.join(root, "processed")
-    if os.path.isdir(processed_dir):
-        print(f"[Data] Removing cached processed dir (avoids Processing... hang): {processed_dir}")
-        shutil.rmtree(processed_dir)
 
+# ── OFF file parser ────────────────────────────────────────────────────────────
 
-def _load_modelnet(root, train, transform, retry=True):
+def _parse_off(path: str) -> torch.Tensor:
     """
-    Load ModelNet with NO pre_transform so no "Processing..." step occurs.
-    NormalizeScale + SamplePoints are both applied at runtime per batch.
-    Auto-clears stale processed cache on version mismatch.
+    Parse a .off mesh file and return vertex positions as (N, 3) float tensor.
+    Handles both 'OFF' on its own line and 'OFF<num> <num> <num>' on one line.
     """
-    try:
-        return ModelNet(
-            root=root, name="10", train=train,
-            transform=transform,
-            pre_transform=None,   # ← no disk processing step
+    with open(path, "r") as f:
+        lines = [l.strip() for l in f if l.strip()]
+
+    # First line is always 'OFF' or 'OFF<n> <n> <n>'
+    header = lines[0]
+    if header.startswith("OFF") and len(header) > 3:
+        counts = header[3:].split()
+        start = 1
+    else:
+        counts = lines[1].split()
+        start = 2
+
+    num_verts = int(counts[0])
+    verts = []
+    for i in range(start, start + num_verts):
+        x, y, z = lines[i].split()[:3]
+        verts.append([float(x), float(y), float(z)])
+
+    return torch.tensor(verts, dtype=torch.float)   # (N, 3)
+
+
+# ── Point sampling & normalisation ────────────────────────────────────────────
+
+def _sample_and_normalize(pos: torch.Tensor, num_points: int) -> torch.Tensor:
+    """
+    Randomly sample `num_points` from vertex positions and normalise to unit sphere.
+    """
+    N = pos.size(0)
+    if N >= num_points:
+        idx = torch.randperm(N)[:num_points]
+    else:
+        idx = torch.randint(0, N, (num_points,))
+    pos = pos[idx]
+
+    # NormalizeScale: centre then scale to [-1, 1]
+    pos = pos - pos.mean(dim=0, keepdim=True)
+    scale = pos.abs().max()
+    if scale > 0:
+        pos = pos / scale
+
+    return pos   # (num_points, 3)
+
+
+# ── Dataset ───────────────────────────────────────────────────────────────────
+
+class ModelNet10Raw(torch.utils.data.Dataset):
+    """
+    Reads ModelNet10 .off files directly.
+    No torch_geometric InMemoryDataset, no Processing... step.
+    """
+
+    def __init__(self, root: str, train: bool = True, num_points: int = 32):
+        super().__init__()
+        self.num_points = num_points
+        split = "train" if train else "test"
+
+        self.samples = []   # list of (path, label)
+        for cls_name in CLASSES:
+            label = CLASS_TO_IDX[cls_name]
+            pattern = os.path.join(root, "raw", cls_name, split, "*.off")
+            files = sorted(glob.glob(pattern))
+            for f in files:
+                self.samples.append((f, label))
+
+        if not self.samples:
+            raise RuntimeError(
+                f"No .off files found under {root}/raw/. "
+                "Make sure get_data.py ran successfully."
+            )
+
+    def __len__(self):
+        return len(self.samples)
+
+    def __getitem__(self, idx):
+        path, label = self.samples[idx]
+        pos = _parse_off(path)
+        pos = _sample_and_normalize(pos, self.num_points)
+        return Data(
+            pos=pos,
+            y=torch.tensor([label], dtype=torch.long),
         )
-    except ValueError as e:
-        if "too many values to unpack" in str(e) and retry:
-            print(f"[Data] Cached files incompatible ({e}). Clearing and retrying ...")
-            _clear_processed(root)
-            return _load_modelnet(root, train, transform, retry=False)
-        raise
 
+
+# ── Collate helper (needed by older PyG DataLoader) ──────────────────────────
+
+def _collate(batch):
+    try:
+        from torch_geometric.data import Batch
+        return Batch.from_data_list(batch)
+    except Exception:
+        return batch
+
+
+# ── Public API ────────────────────────────────────────────────────────────────
 
 def get_loaders(
     root        : str   = C.DATA_ROOT,
@@ -62,25 +139,14 @@ def get_loaders(
 ):
     """
     Returns (train_loader, val_loader, test_loader).
-
-    NormalizeScale and SamplePoints are applied as runtime transforms
-    (no slow pre-processing to disk).
+    Loads .off files directly — no Processing... hang.
     """
-    # Both transforms applied at runtime — no pre_transform / Processing step
-    transform = T.Compose([
-        T.NormalizeScale(),
-        T.SamplePoints(num_points),
-    ])
+    print(f"[Data] Loading ModelNet10 from {root} (direct .off reader) ...")
 
-    # Clear any existing processed cache that was built with a pre_transform —
-    # it would be incompatible now that we pass pre_transform=None.
-    _clear_processed(root)
+    train_full = ModelNet10Raw(root=root, train=True,  num_points=num_points)
+    test_set   = ModelNet10Raw(root=root, train=False, num_points=num_points)
 
-    print(f"[Data] Loading ModelNet10 from {root} ...")
-    train_full = _load_modelnet(root, train=True,  transform=transform)
-    test_set   = _load_modelnet(root, train=False, transform=transform)
-
-    # Optional subsample for quick runs
+    # Optional subsample
     total = len(train_full)
     if max_samples > 0 and max_samples < total:
         indices = torch.randperm(total, generator=torch.Generator().manual_seed(42))
@@ -94,6 +160,7 @@ def get_loaders(
         generator=torch.Generator().manual_seed(42),
     )
 
+    # Use torch_geometric DataLoader so it returns Batch objects
     train_loader = DataLoader(train_set, batch_size=batch_size, shuffle=True,  num_workers=0)
     val_loader   = DataLoader(val_set,   batch_size=batch_size, shuffle=False, num_workers=0)
     test_loader  = DataLoader(test_set,  batch_size=batch_size, shuffle=False, num_workers=0)
