@@ -7,6 +7,19 @@ echo "  Target Device : Jetson Nano"
 echo "  Dataset       : ModelNet10"
 echo "============================================================"
 
+# ── ARM64 / aarch64 fix ───────────────────────────────────────────────────────
+# On Jetson Nano (Python 3.6 + aarch64), scikit-learn's libgomp fails to load
+# due to a static TLS block limitation. Preloading it fixes the ImportError.
+GOMP_LIB=$(find "${VIRTUAL_ENV:-/usr}" -name "libgomp*.so*" 2>/dev/null | head -1)
+if [ -z "$GOMP_LIB" ]; then
+    GOMP_LIB=$(ldconfig -p 2>/dev/null | grep libgomp | awk '{print $NF}' | head -1)
+fi
+if [ -n "$GOMP_LIB" ]; then
+    echo "[INFO] Preloading $GOMP_LIB (ARM64 TLS fix)"
+    export LD_PRELOAD="$GOMP_LIB"
+fi
+# ─────────────────────────────────────────────────────────────────────────────
+
 # Verify RAW data is present (not processed — that gets auto-generated).
 # Delete data/ModelNet10/processed/ if you get a "too many values to unpack"
 # error — it means the cached files were built by a different PyG version.
