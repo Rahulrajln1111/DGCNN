@@ -109,6 +109,34 @@ def function_search(
 
 # ── Stage 2: Operation Search ─────────────────────────────────────────────────
 
+def _apply_function_constraint(arch: Architecture,
+                               upper_func: Optional[Architecture],
+                               lower_func: Optional[Architecture],
+                               half: int) -> Architecture:
+    """
+    Fix the sample_op and agg_op of each position to match the function
+    set found in Stage 1 (paper Section 3.4: Stage 2 fixes functions).
+    Only combine_dim and connect_op remain free for Stage 2 to search.
+    """
+    if upper_func is None and lower_func is None:
+        return arch
+
+    new_positions = []
+    for i, pos in enumerate(arch.positions):
+        ref = (upper_func if i < half else lower_func)
+        if ref is None:
+            new_positions.append(pos)
+            continue
+        ref_pos = ref.positions[i % len(ref.positions)]
+        new_positions.append(PositionEncoding(
+            sample_idx  = ref_pos.sample_idx,   # fixed from Stage 1
+            agg_idx     = ref_pos.agg_idx,       # fixed from Stage 1
+            combine_idx = pos.combine_idx,        # free to search
+            connect_idx = pos.connect_idx,        # free to search
+        ))
+    return Architecture(new_positions)
+
+
 def operation_search(
     supernet,
     val_loader,
@@ -127,12 +155,19 @@ def operation_search(
     """
     Stage 2: Multi-objective operation search with hardware constraints.
 
-    If upper_func / lower_func are provided the positions in those
-    halves are kept fixed (only operations are mutated within bounds).
+    upper_func / lower_func fix the sample and aggregate functions from
+    Stage 1. Only combine_dim and connect_op are searched here (paper §3.4).
     """
     print("\n[Stage 2] Operation Search ...")
+    half = design_space.half
 
-    population = [design_space.random_architecture() for _ in range(pop_size)]
+    # Seed population respecting fixed function constraints from Stage 1
+    population = [
+        _apply_function_constraint(
+            design_space.random_architecture(), upper_func, lower_func, half
+        )
+        for _ in range(pop_size)
+    ]
 
     best_score = -float("inf")
     best_arch  = population[0]
@@ -173,15 +208,18 @@ def operation_search(
             print(f"  Iter {it:3d}/{max_iter} | Best Score: {best_score:.4f} | "
                   f"Acc: {top_acc:.1f}% | Lat: {top_lat:.1f}ms | Mem: {top_mem:.1f}MB")
 
-        # EA selection + mutation
+        # EA selection + mutation (re-apply function constraints after each op)
         survivors = [a for _, a, *_ in scored[:pop_size // 2]]
         new_pop   = survivors.copy()
         while len(new_pop) < pop_size:
             if random.random() < 0.5:
-                new_pop.append(design_space.mutate(random.choice(survivors)))
+                child = design_space.mutate(random.choice(survivors))
             else:
                 p1, p2 = random.sample(survivors, 2)
-                new_pop.append(design_space.crossover(p1, p2))
+                child = design_space.crossover(p1, p2)
+            # Re-pin functions so mutation never breaks Stage 1 constraints
+            child = _apply_function_constraint(child, upper_func, lower_func, half)
+            new_pop.append(child)
         population = new_pop
 
     # Write CSV log
