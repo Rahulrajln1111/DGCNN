@@ -36,16 +36,27 @@ fi
 #  FULL            – full paper settings, needs ~8+ GB, best results
 # ─────────────────────────────────────────────────────────────────────
 
-# --- TINY RUN (default – safe for 4 GB Jetson Nano) ---
+# --- MICRO RUN (default – fastest possible, ~3-5 min on 4 GB Jetson Nano) ---
 python main.py \
-    --supernet-epochs    5   \
-    --predictor-samples  100 \
-    --predictor-epochs   15  \
-    --ea-iter-s1         5   \
-    --ea-iter-s2         10  \
-    --max-samples        200 \
+    --supernet-epochs    2   \
+    --predictor-samples  50  \
+    --predictor-epochs   10  \
+    --ea-iter-s1         3   \
+    --ea-iter-s2         5   \
+    --max-samples        100 \
     --lat-constraint     120 \
     --mem-constraint     600
+
+# --- TINY RUN (uncomment – ~10-15 min, slightly better results) ---
+# python main.py \
+#     --supernet-epochs    5   \
+#     --predictor-samples  100 \
+#     --predictor-epochs   15  \
+#     --ea-iter-s1         5   \
+#     --ea-iter-s2         10  \
+#     --max-samples        200 \
+#     --lat-constraint     120 \
+#     --mem-constraint     600
 
 # --- DEMO RUN (uncomment – ~5 min, needs ~6 GB RAM) ---
 # python main.py \

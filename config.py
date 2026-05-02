@@ -13,7 +13,7 @@ MEMORY_CONSTRAINT_MB   = 600.0   # MB  – conservative limit for Jetson Nano
 # ─────────────────────────────────────────────
 #  Design space
 # ─────────────────────────────────────────────
-NUM_POSITIONS = 12          # 4 GNN layers × 3 ops (sample/agg/combine)
+NUM_POSITIONS = 6           # reduced from 12 for faster search on 4 GB RAM
 
 # Sample operations
 SAMPLE_OPS = ["knn", "random"]
@@ -42,13 +42,13 @@ CONNECT_OPS = ["identity", "skip"]
 IN_CHANNELS  = 3    # xyz coordinates
 NUM_CLASSES  = 10   # ModelNet10
 HIDDEN_DIM   = 32   # supernet hidden dim (reduced for 4 GB Jetson Nano)
-KNN_K        = 8    # neighbours for KNN sampling (reduced for memory)
+KNN_K        = 6    # neighbours for KNN sampling (reduced for speed)
 
 SUPERNET_EPOCHS      = 30    # one-shot pre-training epochs
 SUPERNET_LR          = 1e-3
-SUPERNET_BATCH_SIZE  = 4     # reduced for 4 GB RAM
+SUPERNET_BATCH_SIZE  = 2     # reduced for 4 GB RAM
 SUPERNET_WEIGHT_DECAY= 1e-4
-NUM_POINTS           = 64    # points sampled per object (reduced for 4 GB RAM)
+NUM_POINTS           = 32    # points sampled per object (reduced for speed)
 
 # Whether to use static (pre-computed once) KNN graphs during training.
 # Faster on CPU (Jetson Nano), trades some accuracy for speed.
@@ -58,7 +58,7 @@ STATIC_GRAPH = True
 # ─────────────────────────────────────────────
 #  Evolutionary algorithm (both stages)
 # ─────────────────────────────────────────────
-EA_POP_SIZE          = 20
+EA_POP_SIZE          = 10   # reduced for speed
 EA_MAX_ITER_STAGE1   = 50    # function search iterations
 EA_MAX_ITER_STAGE2   = 100   # operation search iterations
 EA_MUTATION_PROB     = 0.2
