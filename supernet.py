@@ -157,27 +157,42 @@ class AggregateOp(nn.Module):
         x_j = x[src]   # source features
         msg = self._build_message(x_i, x_j, msg_type)   # (E, in_dim)
 
-        # Aggregate messages at destination nodes
+        # Aggregate messages at destination nodes.
+        # scatter_reduce_ only exists in PyTorch ≥ 1.12 so we use
+        # scatter_add_ (universally available) for all four reducers.
+        idx = dst.unsqueeze(-1).expand_as(msg)   # (E, D)
+
         if aggr_type == "sum":
             out = torch.zeros(N, self.in_dim, device=x.device, dtype=x.dtype)
-            out.scatter_add_(0, dst.unsqueeze(-1).expand_as(msg), msg)
+            out.scatter_add_(0, idx, msg)
         elif aggr_type == "mean":
-            out  = torch.zeros(N, self.in_dim, device=x.device, dtype=x.dtype)
-            cnt  = torch.zeros(N, 1,           device=x.device, dtype=x.dtype)
-            out.scatter_add_(0, dst.unsqueeze(-1).expand_as(msg), msg)
+            out = torch.zeros(N, self.in_dim, device=x.device, dtype=x.dtype)
+            cnt = torch.zeros(N, 1,           device=x.device, dtype=x.dtype)
+            out.scatter_add_(0, idx, msg)
             cnt.scatter_add_(0, dst.unsqueeze(-1),
                              torch.ones(dst.size(0), 1, device=x.device))
             out = out / cnt.clamp(min=1)
         elif aggr_type == "max":
+            # Manual scatter-max: works on any PyTorch version.
+            # For small point clouds (≤ 128 pts, k ≤ 8) this is fast enough.
             out = torch.full((N, self.in_dim), -1e9, device=x.device, dtype=x.dtype)
-            out.scatter_reduce_(0, dst.unsqueeze(-1).expand_as(msg), msg,
-                                reduce="amax", include_self=True)
-            out = out.clamp(min=-1e8)   # replace unfilled -inf
+            for e in range(dst.size(0)):
+                d = dst[e].item()
+                out[d] = torch.max(out[d], msg[e].detach())
+            # Restore gradient path via scatter_add on a cloned msg
+            grad_out = torch.zeros(N, self.in_dim, device=x.device, dtype=x.dtype)
+            grad_out.scatter_add_(0, idx, msg)
+            out = out.clamp(min=-1e8)
+            out = out + (grad_out - grad_out.detach())   # pass gradients through
         elif aggr_type == "min":
             out = torch.full((N, self.in_dim), 1e9, device=x.device, dtype=x.dtype)
-            out.scatter_reduce_(0, dst.unsqueeze(-1).expand_as(msg), msg,
-                                reduce="amin", include_self=True)
+            for e in range(dst.size(0)):
+                d = dst[e].item()
+                out[d] = torch.min(out[d], msg[e].detach())
+            grad_out = torch.zeros(N, self.in_dim, device=x.device, dtype=x.dtype)
+            grad_out.scatter_add_(0, idx, msg)
             out = out.clamp(max=1e8)
+            out = out + (grad_out - grad_out.detach())
         else:
             raise ValueError(f"Unknown aggr_type: {aggr_type}")
 
