@@ -41,14 +41,14 @@ CONNECT_OPS = ["identity", "skip"]
 # ─────────────────────────────────────────────
 IN_CHANNELS  = 3    # xyz coordinates
 NUM_CLASSES  = 10   # ModelNet10
-HIDDEN_DIM   = 64   # supernet hidden dim (kept uniform for one-shot)
-KNN_K        = 10   # neighbours for KNN sampling
+HIDDEN_DIM   = 32   # supernet hidden dim (reduced for 4 GB Jetson Nano)
+KNN_K        = 8    # neighbours for KNN sampling (reduced for memory)
 
 SUPERNET_EPOCHS      = 30    # one-shot pre-training epochs
 SUPERNET_LR          = 1e-3
-SUPERNET_BATCH_SIZE  = 8
+SUPERNET_BATCH_SIZE  = 4     # reduced for 4 GB RAM
 SUPERNET_WEIGHT_DECAY= 1e-4
-NUM_POINTS           = 128   # points sampled per object (lower = faster on CPU)
+NUM_POINTS           = 64    # points sampled per object (reduced for 4 GB RAM)
 
 # Whether to use static (pre-computed once) KNN graphs during training.
 # Faster on CPU (Jetson Nano), trades some accuracy for speed.
@@ -66,11 +66,11 @@ EA_MUTATION_PROB     = 0.2
 # ─────────────────────────────────────────────
 #  Hardware predictor
 # ─────────────────────────────────────────────
-PREDICTOR_HIDDEN      = [256, 512, 512]
-PREDICTOR_MLP_HIDDEN  = [256, 128, 1]
+PREDICTOR_HIDDEN      = [64, 128, 128]   # reduced for 4 GB RAM
+PREDICTOR_MLP_HIDDEN  = [64, 32, 1]     # reduced for 4 GB RAM
 PREDICTOR_EPOCHS      = 50
 PREDICTOR_LR          = 8e-4
-PREDICTOR_BATCH       = 32
+PREDICTOR_BATCH       = 16              # reduced for 4 GB RAM
 PREDICTOR_SAMPLES     = 2000   # architectures to profile for training
 
 # ─────────────────────────────────────────────

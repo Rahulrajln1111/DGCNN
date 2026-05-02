@@ -16,26 +16,25 @@ if [ ! -d "data/ModelNet10/raw" ] && [ ! -d "data/ModelNet10/ModelNet10" ]; then
 fi
 
 # ─────────────────────────────────────────────────────────────────────
-#  Run the full HGNAS pipeline.
+#  Three run modes — uncomment the one you want:
 #
-#  QUICK DEMO (uncomment for a fast ~3-5 min CPU test):
-#    Uses a 400-sample subset, few epochs, small EA iterations.
-#
-#  FULL RUN (default – recommended for Jetson Nano):
-#    Uses the complete dataset and full search iterations for real results.
+#  TINY  (default) – fits in 4 GB RAM, ~10-15 min, good for first run
+#  DEMO            – original quick demo (~5 min on GPU, needs ~6 GB)
+#  FULL            – full paper settings, needs ~8+ GB, best results
 # ─────────────────────────────────────────────────────────────────────
 
-# --- FULL RUN on Jetson Nano (default) ---
+# --- TINY RUN (default – safe for 4 GB Jetson Nano) ---
 python main.py \
-    --supernet-epochs    30  \
-    --predictor-samples  2000\
-    --predictor-epochs   50  \
-    --ea-iter-s1         50  \
-    --ea-iter-s2         100 \
+    --supernet-epochs    5   \
+    --predictor-samples  100 \
+    --predictor-epochs   15  \
+    --ea-iter-s1         5   \
+    --ea-iter-s2         10  \
+    --max-samples        200 \
     --lat-constraint     120 \
     --mem-constraint     600
 
-# --- QUICK DEMO (uncomment to use instead) ---
+# --- DEMO RUN (uncomment – ~5 min, needs ~6 GB RAM) ---
 # python main.py \
 #     --supernet-epochs    5   \
 #     --predictor-samples  200 \
@@ -43,6 +42,16 @@ python main.py \
 #     --ea-iter-s1         10  \
 #     --ea-iter-s2         20  \
 #     --max-samples        400 \
+#     --lat-constraint     120 \
+#     --mem-constraint     600
+
+# --- FULL RUN (uncomment – best results, needs ~8 GB RAM) ---
+# python main.py \
+#     --supernet-epochs    30  \
+#     --predictor-samples  2000\
+#     --predictor-epochs   50  \
+#     --ea-iter-s1         50  \
+#     --ea-iter-s2         100 \
 #     --lat-constraint     120 \
 #     --mem-constraint     600
 
