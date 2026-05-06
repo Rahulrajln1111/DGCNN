@@ -1,8 +1,10 @@
 torch
 torch-geometric
-pandas
-matplotlib
+torch-scatter
+torch-sparse
+torch-cluster
+torch-spline-conv
 numpy
-scikit-learn
-scipy
+matplotlib
 tqdm
+scikit-learn

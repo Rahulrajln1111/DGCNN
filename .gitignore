@@ -1,4 +1,13 @@
-.replit
+__pycache__/
+*.pyc
+checkpoints/
 data/
-__pycache__
-
+*.pt
+*.pth
+benchmark_results/
+training_log.csv
+inference_results.txt
+*.egg-info/
+.eggs/
+dist/
+build/
