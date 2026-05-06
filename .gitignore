@@ -1,8 +1,6 @@
 __pycache__/
 *.pyc
-checkpoints/
 data/
-*.pt
 *.pth
 benchmark_results/
 training_log.csv
