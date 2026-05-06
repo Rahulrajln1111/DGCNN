@@ -1,244 +1,145 @@
 #!/usr/bin/env python3
 """
-Benchmark DGCNN on Jetson Nano – measures latency, throughput, memory.
+Benchmark all trained DGCNN variants on Jetson Nano.
 
-Generates performance plots and a summary report.
+Loads every checkpoint in checkpoints/, runs inference on test set,
+measures latency/accuracy/throughput, and saves CSV for visualization.
 
 Usage:
-    python benchmark.py --model checkpoints/dgcnn_best.pt
+    python benchmark.py                           # benchmark all checkpoints
+    python benchmark.py --models baseline lite    # specific models only
+    python benchmark.py --fp16                    # also benchmark FP16
 """
 
 import argparse
-import time
+import csv
 import os
+import time
+import glob
 
 import torch
 import numpy as np
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-from tqdm import tqdm
 
 from dgcnn_model import DGCNN
-from dataset import get_test_loader, CLASSES, ModelNet10Dataset
-from torch_geometric.data import Data
-
-try:
-    from torch_geometric.loader import DataLoader
-except ImportError:
-    from torch_geometric.data import DataLoader
+from dataset import get_test_loader, CLASSES
 
 
 def parse_args():
-    p = argparse.ArgumentParser(description="Benchmark DGCNN")
-    p.add_argument("--model", type=str, default="checkpoints/dgcnn_best.pt")
-    p.add_argument("--config", type=str, default="checkpoints/dgcnn_config.pt")
+    p = argparse.ArgumentParser(description="Benchmark DGCNN variants")
+    p.add_argument("--models", nargs="+", default=None,
+                   help="Model names to benchmark (default: all in checkpoints/)")
     p.add_argument("--data-root", type=str, default="./data/ModelNet10")
     p.add_argument("--num-points", type=int, default=1024)
+    p.add_argument("--batch-size", type=int, default=8)
+    p.add_argument("--fp16", action="store_true", help="Also benchmark FP16")
     p.add_argument("--device", type=str,
                    default="cuda" if torch.cuda.is_available() else "cpu")
-    p.add_argument("--output-dir", type=str, default="benchmark_results")
+    p.add_argument("--output-dir", type=str, default="results")
     return p.parse_args()
 
 
-def load_model(model_path, config_path, device):
-    k = 20
-    if os.path.exists(config_path):
-        config = torch.load(config_path, map_location="cpu")
-        k = config.get("k", 20)
+def discover_models(models_filter=None):
+    """Find all model checkpoints and their configs."""
+    found = []
+    for ckpt in sorted(glob.glob("checkpoints/dgcnn_*.pt")):
+        name = os.path.basename(ckpt).replace("dgcnn_", "").replace(".pt", "")
+        if name in ["config", "final"]:
+            continue
+        if models_filter and name not in models_filter:
+            continue
 
-    model = DGCNN(num_classes=10, k=k, dropout=0.0)
-    model.load_state_dict(torch.load(model_path, map_location=device))
-    model = model.to(device)
+        config_path = f"checkpoints/config_{name}.pt"
+        found.append({"name": name, "ckpt": ckpt, "config": config_path})
+
+    return found
+
+
+def load_model(info, device):
+    """Load a model from checkpoint + config."""
+    model_kwargs = {"num_classes": 10, "dropout": 0.0}
+
+    if os.path.exists(info["config"]):
+        config = torch.load(info["config"], map_location="cpu")
+        for key in ["k", "channels", "emb_dim", "aggr", "static_graph",
+                     "use_attention", "preset"]:
+            if key in config:
+                model_kwargs[key] = config[key]
+
+    model = DGCNN(**model_kwargs).to(device)
+    model.load_state_dict(torch.load(info["ckpt"], map_location=device))
     model.eval()
     return model
 
 
 @torch.no_grad()
-def benchmark_batch_sizes(model, data_root, num_points, device, batch_sizes=[1, 2, 4, 8, 16]):
-    """Benchmark latency/throughput across different batch sizes."""
-    results = []
+def benchmark_model(model, test_loader, device, name, fp16=False):
+    """Benchmark a single model. Returns results dict."""
+    if fp16:
+        model = model.half()
 
-    for bs in batch_sizes:
-        print(f"\n[Benchmark] Batch size = {bs}")
-        try:
-            loader = get_test_loader(data_root, num_points, batch_size=bs, num_workers=0)
+    model.eval()
 
-            # Warmup
-            for i, batch in enumerate(loader):
-                if i >= 3:
-                    break
-                batch = batch.to(device)
-                _ = model(batch)
-                if device == "cuda":
-                    torch.cuda.synchronize()
+    # Warmup
+    for i, batch in enumerate(test_loader):
+        if i >= 3:
+            break
+        batch = batch.to(device)
+        x = batch
+        if fp16:
+            batch.pos = batch.pos.half()
+        _ = model(batch)
+        if device == "cuda":
+            torch.cuda.synchronize()
 
-            # Timed run
-            latencies = []
-            total_samples = 0
-            for batch in loader:
-                batch = batch.to(device)
-                if device == "cuda":
-                    torch.cuda.synchronize()
-                t0 = time.perf_counter()
-                _ = model(batch)
-                if device == "cuda":
-                    torch.cuda.synchronize()
-                t1 = time.perf_counter()
-                latencies.append((t1 - t0) * 1000)
-                total_samples += batch.y.size(0)
+    # Timed inference
+    correct, total = 0, 0
+    latencies = []
+    class_correct = [0] * 10
+    class_total = [0] * 10
 
-            lat = np.array(latencies)
-            total_time = lat.sum() / 1000  # seconds
-            throughput = total_samples / total_time
+    for batch in test_loader:
+        batch = batch.to(device)
+        if fp16:
+            batch.pos = batch.pos.half()
 
-            results.append({
-                "batch_size": bs,
-                "mean_latency_ms": lat.mean(),
-                "std_latency_ms": lat.std(),
-                "throughput_sps": throughput,
-                "per_sample_ms": lat.mean() / bs if bs > 0 else 0,
-            })
+        if device == "cuda":
+            torch.cuda.synchronize()
+        t0 = time.perf_counter()
+        logits = model(batch)
+        if device == "cuda":
+            torch.cuda.synchronize()
+        t1 = time.perf_counter()
 
-            print(f"  Latency: {lat.mean():.2f} ± {lat.std():.2f} ms/batch | "
-                  f"Throughput: {throughput:.1f} samples/sec")
+        latencies.append((t1 - t0) * 1000)
+        pred = logits.argmax(dim=1)
+        labels = batch.y.view(-1)
+        correct += (pred == labels).sum().item()
+        total += labels.size(0)
 
-        except RuntimeError as e:
-            print(f"  FAILED (likely OOM): {e}")
-            results.append({"batch_size": bs, "error": str(e)})
+        for p, l in zip(pred.cpu().tolist(), labels.cpu().tolist()):
+            class_total[l] += 1
+            if p == l:
+                class_correct[l] += 1
 
-    return results
+    lat = np.array(latencies)
+    accuracy = 100.0 * correct / total
+    throughput = total / (lat.sum() / 1000)
+    num_params = sum(p.numel() for p in model.parameters())
 
-
-@torch.no_grad()
-def benchmark_num_points(model_path, config_path, data_root, device,
-                         point_counts=[256, 512, 1024]):
-    """Benchmark accuracy vs num_points."""
-    results = []
-
-    for np_ in point_counts:
-        print(f"\n[Benchmark] Num points = {np_}")
-        model = load_model(model_path, config_path, device)
-        loader = get_test_loader(data_root, np_, batch_size=8, num_workers=0)
-
-        correct, total = 0, 0
-        latencies = []
-        for batch in loader:
-            batch = batch.to(device)
-            if device == "cuda":
-                torch.cuda.synchronize()
-            t0 = time.perf_counter()
-            logits = model(batch)
-            if device == "cuda":
-                torch.cuda.synchronize()
-            t1 = time.perf_counter()
-            latencies.append((t1 - t0) * 1000)
-
-            pred = logits.argmax(dim=1)
-            correct += (pred == batch.y.view(-1)).sum().item()
-            total += batch.y.size(0)
-
-        acc = 100.0 * correct / total
-        lat = np.array(latencies)
-        results.append({
-            "num_points": np_,
-            "accuracy": acc,
-            "mean_latency_ms": lat.mean(),
-        })
-        print(f"  Accuracy: {acc:.2f}% | Latency: {lat.mean():.2f} ms/batch")
-
-    return results
-
-
-def plot_results(batch_results, point_results, output_dir):
-    """Generate benchmark plots."""
-    os.makedirs(output_dir, exist_ok=True)
-
-    # Plot 1: Batch size vs Throughput
-    valid = [r for r in batch_results if "error" not in r]
-    if valid:
-        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
-
-        bs = [r["batch_size"] for r in valid]
-        tp = [r["throughput_sps"] for r in valid]
-        lat = [r["mean_latency_ms"] for r in valid]
-
-        ax1.bar(range(len(bs)), tp, color="#4CAF50", edgecolor="black")
-        ax1.set_xticks(range(len(bs)))
-        ax1.set_xticklabels(bs)
-        ax1.set_xlabel("Batch Size")
-        ax1.set_ylabel("Throughput (samples/sec)")
-        ax1.set_title("Throughput vs Batch Size")
-
-        ax2.bar(range(len(bs)), lat, color="#2196F3", edgecolor="black")
-        ax2.set_xticks(range(len(bs)))
-        ax2.set_xticklabels(bs)
-        ax2.set_xlabel("Batch Size")
-        ax2.set_ylabel("Latency (ms/batch)")
-        ax2.set_title("Latency vs Batch Size")
-
-        plt.tight_layout()
-        plt.savefig(os.path.join(output_dir, "batch_benchmark.png"), dpi=150)
-        plt.close()
-        print(f"[Plot] Saved batch_benchmark.png")
-
-    # Plot 2: Num points vs Accuracy/Latency
-    if point_results:
-        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
-
-        nps = [r["num_points"] for r in point_results]
-        accs = [r["accuracy"] for r in point_results]
-        lats = [r["mean_latency_ms"] for r in point_results]
-
-        ax1.plot(nps, accs, "o-", color="#FF5722", linewidth=2, markersize=8)
-        ax1.set_xlabel("Number of Points")
-        ax1.set_ylabel("Test Accuracy (%)")
-        ax1.set_title("Accuracy vs Point Count")
-        ax1.grid(True, alpha=0.3)
-
-        ax2.plot(nps, lats, "s-", color="#9C27B0", linewidth=2, markersize=8)
-        ax2.set_xlabel("Number of Points")
-        ax2.set_ylabel("Latency (ms/batch)")
-        ax2.set_title("Latency vs Point Count")
-        ax2.grid(True, alpha=0.3)
-
-        plt.tight_layout()
-        plt.savefig(os.path.join(output_dir, "points_benchmark.png"), dpi=150)
-        plt.close()
-        print(f"[Plot] Saved points_benchmark.png")
-
-
-def write_report(batch_results, point_results, output_dir, device):
-    """Write a text summary report."""
-    path = os.path.join(output_dir, "benchmark_report.txt")
-    with open(path, "w") as f:
-        f.write("=" * 60 + "\n")
-        f.write("  DGCNN Benchmark Report – Jetson Nano\n")
-        f.write("=" * 60 + "\n\n")
-        f.write(f"Device: {device}\n")
-        if torch.cuda.is_available():
-            f.write(f"GPU: {torch.cuda.get_device_name(0)}\n")
-        f.write(f"PyTorch: {torch.__version__}\n\n")
-
-        f.write("--- Batch Size Benchmark ---\n")
-        for r in batch_results:
-            if "error" in r:
-                f.write(f"  BS={r['batch_size']}: FAILED ({r['error'][:50]})\n")
-            else:
-                f.write(f"  BS={r['batch_size']}: "
-                        f"{r['mean_latency_ms']:.2f}ms/batch | "
-                        f"{r['throughput_sps']:.1f} samples/sec | "
-                        f"{r['per_sample_ms']:.2f}ms/sample\n")
-
-        f.write("\n--- Point Count Benchmark ---\n")
-        for r in point_results:
-            f.write(f"  {r['num_points']} points: "
-                    f"{r['accuracy']:.2f}% accuracy | "
-                    f"{r['mean_latency_ms']:.2f}ms/batch\n")
-
-        f.write("\n" + "=" * 60 + "\n")
-
-    print(f"[Report] Saved to {path}")
+    return {
+        "name": f"{name}_fp16" if fp16 else name,
+        "accuracy": accuracy,
+        "latency_ms": lat.mean(),
+        "latency_std": lat.std(),
+        "throughput_sps": throughput,
+        "num_params": num_params,
+        "fp16": fp16,
+        "class_correct": class_correct,
+        "class_total": class_total,
+    }
 
 
 def main():
@@ -247,37 +148,73 @@ def main():
 
     print("=" * 60)
     print("  DGCNN Benchmark Suite")
-    print(f"  Device : {args.device}")
+    print(f"  Device     : {args.device}")
+    print(f"  Batch size : {args.batch_size}")
+    print(f"  FP16       : {args.fp16}")
     print("=" * 60)
 
-    model = load_model(args.model, args.config, args.device)
+    models = discover_models(args.models)
+    if not models:
+        print("[ERROR] No model checkpoints found in checkpoints/")
+        return
 
-    # Benchmark 1: Batch sizes
-    print("\n" + "=" * 40)
-    print("  Benchmark 1: Batch Size Sweep")
-    print("=" * 40)
-    batch_results = benchmark_batch_sizes(
-        model, args.data_root, args.num_points, args.device,
-        batch_sizes=[1, 2, 4, 8]
-    )
+    print(f"\n  Found {len(models)} models: {[m['name'] for m in models]}")
 
-    # Benchmark 2: Point counts
-    print("\n" + "=" * 40)
-    print("  Benchmark 2: Point Count Sweep")
-    print("=" * 40)
-    point_results = benchmark_num_points(
-        args.model, args.config, args.data_root, args.device,
-        point_counts=[256, 512, 1024]
-    )
+    test_loader = get_test_loader(args.data_root, args.num_points,
+                                   args.batch_size, num_workers=0)
 
-    # Generate plots and report
-    plot_results(batch_results, point_results, args.output_dir)
-    write_report(batch_results, point_results, args.output_dir, args.device)
+    all_results = []
 
-    print("\n" + "=" * 60)
-    print("  Benchmark Complete!")
-    print(f"  Results in: {args.output_dir}/")
-    print("=" * 60)
+    for info in models:
+        print(f"\n  Benchmarking: {info['name']}")
+        model = load_model(info, args.device)
+        print(f"    Params: {model.count_parameters():,}")
+
+        # FP32
+        result = benchmark_model(model, test_loader, args.device, info["name"])
+        all_results.append(result)
+        print(f"    FP32: {result['accuracy']:.1f}% | {result['latency_ms']:.1f}ms | "
+              f"{result['throughput_sps']:.0f} samp/s")
+
+        # FP16
+        if args.fp16:
+            try:
+                result16 = benchmark_model(model, test_loader, args.device,
+                                            info["name"], fp16=True)
+                all_results.append(result16)
+                print(f"    FP16: {result16['accuracy']:.1f}% | {result16['latency_ms']:.1f}ms | "
+                      f"{result16['throughput_sps']:.0f} samp/s")
+            except Exception as e:
+                print(f"    FP16 FAILED: {e}")
+
+    # Save CSV (without per-class data for cleanliness)
+    csv_rows = []
+    for r in all_results:
+        csv_rows.append({
+            "name": r["name"],
+            "accuracy": f"{r['accuracy']:.2f}",
+            "latency_ms": f"{r['latency_ms']:.2f}",
+            "latency_std": f"{r['latency_std']:.2f}",
+            "throughput_sps": f"{r['throughput_sps']:.1f}",
+            "num_params": r["num_params"],
+            "fp16": r["fp16"],
+        })
+
+    csv_path = os.path.join(args.output_dir, "jetson_benchmark.csv")
+    with open(csv_path, "w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=csv_rows[0].keys())
+        writer.writeheader()
+        writer.writerows(csv_rows)
+
+    # Print summary
+    print(f"\n{'='*60}")
+    print(f"  {'Name':<20} {'Acc%':>6} {'Lat(ms)':>8} {'Tput':>8} {'Params':>10}")
+    print(f"  {'-'*55}")
+    for r in all_results:
+        print(f"  {r['name']:<20} {r['accuracy']:>5.1f}% {r['latency_ms']:>7.1f} "
+              f"{r['throughput_sps']:>7.0f} {r['num_params']:>10,}")
+    print(f"{'='*60}")
+    print(f"  Results saved: {csv_path}")
 
 
 if __name__ == "__main__":

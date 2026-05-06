@@ -242,7 +242,7 @@ torch.save(state, "checkpoints/dgcnn_best_compat.pt",
 
 ---
 
-## Summary of Commands
+## Summary of Phase 1-3 Commands
 
 ```bash
 # === A100 (GCP) ===
@@ -259,4 +259,191 @@ python inference.py --model checkpoints/dgcnn_best.pt
 python benchmark.py --model checkpoints/dgcnn_best.pt
 ```
 
-**Done! You now have a GNN running on an edge device with full benchmarks.** 🎉
+---
+
+## PHASE 4: Ablation Studies on A100 — ~2 hours
+
+This trains **14 DGCNN variants** to study the impact of each design choice.
+
+### Step 12: Run all ablation experiments
+
+```bash
+# On A100 — runs all 14 experiments (~2 hours total)
+python train_ablation.py
+
+# OR run a quick subset first (~30 min)
+python train_ablation.py --quick
+
+# OR run specific experiment groups:
+python train_ablation.py --experiments baseline lite tiny          # compression
+python train_ablation.py --experiments baseline k5 k10 k15        # K sweep
+python train_ablation.py --experiments baseline aggr_mean aggr_sum # aggregation
+python train_ablation.py --experiments baseline static             # static graph
+python train_ablation.py --experiments baseline attention          # attention
+python train_ablation.py --experiments baseline depth2 depth3 depth5  # depth
+
+# Override epochs for faster runs:
+python train_ablation.py --epochs 100
+```
+
+**What each experiment tests:**
+
+| Experiment | What Changes | Why |
+|-----------|-------------|-----|
+| `baseline` | Standard DGCNN (k=20, max, dynamic) | Reference point |
+| `k5`, `k10`, `k15` | Number of KNN neighbors | Fewer K = faster on Jetson |
+| `prog_k` | K decreases per layer [20,15,10,5] | Adaptive computation |
+| `lite` | Channels [32,32,64,128] | 4× fewer params |
+| `tiny` | Channels [16,16,32,64] | 16× fewer params |
+| `aggr_mean` | Mean instead of max aggregation | Simpler computation |
+| `aggr_sum` | Sum instead of max aggregation | Different inductive bias |
+| `static` | KNN computed once, reused all layers | ~3-4× faster inference |
+| `attention` | Edge attention gates | Learn which neighbors matter |
+| `depth2/3/5` | Fewer/more EdgeConv layers | Depth vs efficiency |
+
+### Step 13: Check ablation results
+
+```bash
+cat results/ablation_results.csv
+# Shows: name, accuracy, params, training time for each variant
+```
+
+### Step 14: Generate training visualizations (on A100)
+
+```bash
+python visualize.py --skip-model-plots
+# Generates plots in plots/ directory from CSV results
+```
+
+---
+
+## PHASE 5: Benchmark ALL variants on Jetson — ~30 minutes
+
+### Step 15: Transfer all checkpoints to Jetson
+
+```bash
+# From A100:
+scp -r checkpoints/ jetson@<IP>:~/Desktop/GNN/DGCNN/
+scp -r results/ jetson@<IP>:~/Desktop/GNN/DGCNN/
+
+# Also push code updates:
+git add -A && git commit -m "ablation studies" && git push
+# On Jetson: git pull
+```
+
+### Step 16: Benchmark all variants on Jetson
+
+```bash
+# On Jetson — benchmarks every model in checkpoints/
+python benchmark.py
+
+# Also benchmark with FP16 (half precision):
+python benchmark.py --fp16
+```
+
+**Expected output:**
+```
+  Name                 Acc%   Lat(ms)     Tput     Params
+  -------------------------------------------------------
+  baseline             93.2%    45.3      176    1,803,914
+  lite                 90.1%    28.7      279      451,082
+  tiny                 85.3%    18.2      440      113,546
+  static               91.5%    12.1      661    1,803,914
+  ...
+```
+
+### Step 17: Profile layer-by-layer timing
+
+```bash
+# Profile the baseline model
+python profile_model.py --model checkpoints/dgcnn_baseline.pt
+
+# Profile with FP16
+python profile_model.py --model checkpoints/dgcnn_baseline.pt --fp16
+```
+
+This shows exactly where time is spent (KNN vs message passing vs aggregation).
+
+---
+
+## PHASE 6: Generate All Visualizations — ~10 minutes
+
+### Step 18: Generate all plots
+
+```bash
+# On Jetson (or wherever you have all results):
+python visualize.py
+```
+
+**Plots generated (in `plots/` directory):**
+
+| Plot | What It Shows |
+|------|---------------|
+| `accuracy_comparison.png` | Bar chart of all variants ranked by accuracy |
+| `params_comparison.png` | Model size comparison |
+| `pareto_front.png` | Accuracy vs model size tradeoff |
+| `k_sweep.png` | Impact of K on accuracy |
+| `aggregation_comparison.png` | max vs mean vs sum |
+| `static_vs_dynamic.png` | Speed vs accuracy tradeoff |
+| `compression_summary.png` | Full vs Lite vs Tiny |
+| `training_curves.png` | Loss/accuracy over epochs for all variants |
+| `confusion_matrix.png` | 10×10 classification heatmap |
+| `tsne_features.png` | t-SNE of learned features |
+| `profile_breakdown_fp32.png` | Time per component (FP32) |
+| `profile_breakdown_fp16.png` | Time per component (FP16) |
+| `fp16_comparison.png` | FP32 vs FP16 per component |
+| `jetson_benchmarks.png` | Latency + accuracy on Jetson |
+
+### Step 19: Collect results for presentation
+
+```bash
+ls plots/
+# 14+ PNG files ready for your presentation/report
+
+cat results/ablation_results.csv       # Training results
+cat results/jetson_benchmark.csv       # Jetson performance
+cat benchmark_results/benchmark_report.txt  # Detailed report
+```
+
+---
+
+## Complete Command Summary
+
+```bash
+# ═══════════════════════════════════════════════════
+# PHASE 1-3: Basic pipeline (already done)
+# ═══════════════════════════════════════════════════
+pip install -r requirements.txt
+python download_data.py
+python train.py --epochs 200
+scp -r checkpoints/ jetson@<IP>:~/Desktop/GNN/DGCNN/
+# On Jetson:
+python inference.py --model checkpoints/dgcnn_best.pt
+
+# ═══════════════════════════════════════════════════
+# PHASE 4: Ablation studies (on A100)
+# ═══════════════════════════════════════════════════
+python train_ablation.py                    # all experiments
+python visualize.py --skip-model-plots      # generate plots
+
+# ═══════════════════════════════════════════════════
+# PHASE 5: Benchmark all variants (on Jetson)
+# ═══════════════════════════════════════════════════
+python benchmark.py --fp16                  # benchmark all models
+python profile_model.py --model checkpoints/dgcnn_baseline.pt
+
+# ═══════════════════════════════════════════════════
+# PHASE 6: Visualizations (on Jetson or A100)
+# ═══════════════════════════════════════════════════
+python visualize.py                         # generate all 15+ plots
+```
+
+**Your project now demonstrates:**
+- ✅ Custom GNN implementation (not just a library call)
+- ✅ 5 edge-device optimizations with measured impact
+- ✅ 14 ablation experiments with training curves
+- ✅ 15+ publication-quality plots
+- ✅ FP32 vs FP16 comparison
+- ✅ Layer-wise profiling on real hardware
+- ✅ Pareto-optimal model selection for edge deployment
+

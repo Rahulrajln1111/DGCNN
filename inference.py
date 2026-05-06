@@ -40,20 +40,30 @@ def parse_args():
 
 def load_model(args):
     """Load trained DGCNN model."""
-    # Load config if available
-    k = 20
-    if os.path.exists(args.config):
-        config = torch.load(args.config, map_location="cpu")
-        k = config.get("k", 20)
-        print(f"[Model] Config: k={k}, num_classes={config.get('num_classes', 10)}")
+    model_kwargs = {"num_classes": 10, "dropout": 0.0}
 
-    model = DGCNN(num_classes=10, k=k, dropout=0.0)  # no dropout at inference
+    # Load config if available
+    config_path = args.config
+    if not os.path.exists(config_path):
+        # Try auto-detecting config from model path
+        name = os.path.basename(args.model).replace("dgcnn_", "").replace(".pt", "")
+        config_path = f"checkpoints/config_{name}.pt"
+
+    if os.path.exists(config_path):
+        config = torch.load(config_path, map_location="cpu")
+        for key in ["k", "channels", "emb_dim", "aggr", "static_graph",
+                     "use_attention", "preset"]:
+            if key in config:
+                model_kwargs[key] = config[key]
+        print(f"[Model] Config: {model_kwargs}")
+
+    model = DGCNN(**model_kwargs)
     state_dict = torch.load(args.model, map_location=args.device)
     model.load_state_dict(state_dict)
     model = model.to(args.device)
     model.eval()
 
-    num_params = sum(p.numel() for p in model.parameters())
+    num_params = model.count_parameters()
     print(f"[Model] Loaded DGCNN ({num_params:,} params) on {args.device}")
     return model
 
