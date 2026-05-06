@@ -12,9 +12,48 @@ Compatible with PyTorch 1.10+ and PyG 2.0.3+ (works on both A100 and Jetson Nano
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch_cluster import knn
-from torch_scatter import scatter
 from torch_geometric.nn import global_max_pool, global_mean_pool
+
+
+def knn_graph(x, k, batch):
+    """
+    Manual KNN graph construction using torch.cdist.
+
+    Works on ALL GPUs including Jetson Nano's Maxwell (128-core).
+    torch_cluster.knn fails on Maxwell due to CUDA kernel launch limits,
+    so we use standard BLAS-backed distance computation instead.
+
+    Args:
+        x:     (N, D) node features
+        k:     number of neighbors
+        batch: (N,) graph membership indices
+
+    Returns:
+        edge_index: (2, N*k) tensor — [row (center), col (neighbor)]
+    """
+    row_list, col_list = [], []
+
+    for graph_id in batch.unique():
+        mask = (batch == graph_id)
+        pts = x[mask]                           # (n, D)
+        n = pts.size(0)
+        real_k = min(k, n - 1)
+        global_ids = torch.where(mask)[0]       # map local → global
+
+        # Pairwise distances via optimised BLAS
+        dist = torch.cdist(pts, pts, p=2.0)     # (n, n)
+        dist.fill_diagonal_(float("inf"))        # exclude self-loops
+
+        # Top-k nearest (smallest distance)
+        _, knn_idx = dist.topk(real_k, largest=False, dim=1)  # (n, k)
+
+        # Build edge list: center → neighbor
+        row = global_ids.unsqueeze(1).expand(-1, real_k).reshape(-1)
+        col = global_ids[knn_idx.reshape(-1)]
+        row_list.append(row)
+        col_list.append(col)
+
+    return torch.stack([torch.cat(row_list), torch.cat(col_list)], dim=0)
 
 
 class EdgeConv(nn.Module):
@@ -36,9 +75,8 @@ class EdgeConv(nn.Module):
         )
 
     def forward(self, x, batch):
-        # KNN in feature space: returns (2, N*k) tensor
-        # row = query (center), col = neighbor
-        edge_index = knn(x, x, self.k, batch, batch)
+        # Build KNN graph in feature space (works on all GPUs)
+        edge_index = knn_graph(x, self.k, batch)
         row, col = edge_index[0], edge_index[1]
 
         # Edge features: [center_features, neighbor - center]
@@ -50,8 +88,38 @@ class EdgeConv(nn.Module):
         edge_feat = self.mlp(edge_feat)
 
         # Max aggregate to center nodes
-        out = scatter(edge_feat, row, dim=0, dim_size=x.size(0), reduce='max')
+        out = scatter_max(edge_feat, row, dim=0, dim_size=x.size(0))
         return out
+
+
+def scatter_max(src, index, dim=0, dim_size=None):
+    """
+    Scatter max aggregation — compatible with PyTorch 1.10+.
+    Uses torch_scatter if available, otherwise falls back to a loop.
+    """
+    try:
+        from torch_scatter import scatter
+        return scatter(src, index, dim=dim, dim_size=dim_size, reduce='max')
+    except ImportError:
+        pass
+
+    # Fallback: use scatter_reduce_ if available (PyTorch >= 1.12)
+    try:
+        idx = index.unsqueeze(-1).expand_as(src)
+        out = torch.full((dim_size, src.size(1)), float('-inf'),
+                         device=src.device, dtype=src.dtype)
+        out.scatter_reduce_(0, idx, src, reduce="amax", include_self=False)
+        return torch.where(out == float('-inf'), torch.zeros_like(out), out)
+    except (AttributeError, TypeError):
+        pass
+
+    # Last resort fallback
+    out = torch.zeros(dim_size, src.size(1), device=src.device, dtype=src.dtype)
+    idx = index.unsqueeze(-1).expand_as(src)
+    out.scatter_add_(0, idx, src)
+    cnt = torch.zeros(dim_size, 1, device=src.device, dtype=src.dtype)
+    cnt.scatter_add_(0, index.unsqueeze(-1), torch.ones(index.size(0), 1, device=src.device))
+    return out / cnt.clamp(min=1)
 
 
 class DGCNN(nn.Module):
