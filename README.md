@@ -1,14 +1,12 @@
 # DGCNN on Edge Devices – GNN for Jetson Nano
 
-[![PyTorch](https://img.shields.io/badge/PyTorch-EE4C2C?style=flat&logo=pytorch&logoColor=white)](https://pytorch.org/)
-[![NVIDIA Jetson](https://img.shields.io/badge/NVIDIA-Jetson%20Nano-76B900?style=flat&logo=nvidia&logoColor=white)](https://www.nvidia.com/en-us/autonomous-machines/embedded-systems/jetson-nano/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[PyTorch](https://pytorch.org/) | [NVIDIA Jetson Nano](https://www.nvidia.com/en-us/autonomous-machines/embedded-systems/jetson-nano/) | [License: MIT](https://opensource.org/licenses/MIT)
 
 This project implements and optimizes **DGCNN** (Dynamic Graph CNN) for 3D point cloud classification on **ModelNet10**, specifically tailored for deployment on the **NVIDIA Jetson Nano** edge device.
 
 ---
 
-## 🚀 Key Features
+## Key Features
 
 - **Dynamic Graph Construction**: Recomputes KNN graphs in feature space to capture local geometric evolution.
 - **EdgeConv Optimization**: Custom message-passing layers optimized for Maxwell-generation GPUs (Jetson Nano).
@@ -19,7 +17,7 @@ This project implements and optimizes **DGCNN** (Dynamic Graph CNN) for 3D point
   - **Edge Attention**: Gated attention mechanism to focus on relevant local features.
   - **FP16 Inference**: Full support for half-precision floating point on Jetson.
 
-## 📂 Project Structure
+## Project Structure
 
 ```bash
 ├── dgcnn_model.py       # Core model definition with optimization toggles
@@ -36,7 +34,7 @@ This project implements and optimizes **DGCNN** (Dynamic Graph CNN) for 3D point
 
 ---
 
-## 🛠️ Usage Guide
+## Usage Guide
 
 ### 1. Training (GCP A100 / Local GPU)
 
@@ -68,7 +66,7 @@ python benchmark.py --model checkpoints/dgcnn_best.pt --batch-size 1
 
 ---
 
-## 📊 Results
+## Results
 
 | Variant | Params | ModelNet10 Acc | Jetson Latency (BS=1) |
 | :--- | :--- | :--- | :--- |
@@ -80,7 +78,7 @@ python benchmark.py --model checkpoints/dgcnn_best.pt --batch-size 1
 
 ---
 
-## 📜 References
+## References
 
 1.  **Wang et al.**, "[Dynamic Graph CNN for Learning on Point Clouds](https://arxiv.org/abs/1801.07829)", ACM Transactions on Graphics (TOG), 2019.
 2.  **Zhou et al.**, "[HGNAS: Hardware-Aware GNN Architecture Search](https://ieeexplore.ieee.org/document/10123010)", IEEE Transactions on Computers, 2024.
