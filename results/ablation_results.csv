@@ -1,0 +1,15 @@
+name,desc,best_test_acc,num_params,train_time_min,k,channels,aggr,static_graph,use_attention
+baseline,"Standard DGCNN (Full model, k=20, dynamic graph, max aggr)",76.65198237885463,1803914,7.60176309744517,20,"[64, 64, 128, 256]",max,False,False
+k5,k=5 neighbors,76.431718061674,1803914,5.681983983516693,5,"[64, 64, 128, 256]",max,False,False
+k10,k=10 neighbors,76.87224669603525,1803914,6.345847598711649,10,"[64, 64, 128, 256]",max,False,False
+k15,k=15 neighbors,77.6431718061674,1803914,6.901182738939921,15,"[64, 64, 128, 256]",max,False,False
+prog_k,"Progressive K: [20, 15, 10, 5]",78.52422907488987,1803914,6.169605267047882,"[20, 15, 10, 5]","[64, 64, 128, 256]",max,False,False
+lite,"DGCNN-Lite: [32,32,64,128], emb=512",74.33920704845815,453450,6.126699888706208,20,,max,False,False
+tiny,"DGCNN-Tiny: [16,16,32,64], emb=256",67.62114537444934,114602,5.620498851935069,20,,max,False,False
+aggr_mean,Mean aggregation,77.20264317180617,1803914,7.232567278544108,20,"[64, 64, 128, 256]",mean,False,False
+aggr_sum,Sum aggregation,75.22026431718062,1803914,7.233665645122528,20,"[64, 64, 128, 256]",sum,False,False
+static,Static graph (KNN computed once on raw xyz),77.09251101321586,1803914,6.888847736517588,20,"[64, 64, 128, 256]",max,True,False
+attention,Edge attention gating,80.1762114537445,1804436,9.042183037598928,20,"[64, 64, 128, 256]",max,False,True
+depth2,2 EdgeConv layers,74.66960352422907,414538,5.476035245259603,20,"[64, 128]",max,False,False
+depth3,3 EdgeConv layers,75.88105726872247,891850,5.918413889408112,20,"[64, 64, 128]",max,False,False
+depth5,5 EdgeConv layers,75.77092511013215,1877834,8.548424315452575,20,"[64, 64, 64, 128, 256]",max,False,False
