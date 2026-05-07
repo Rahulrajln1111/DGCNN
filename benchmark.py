@@ -46,6 +46,8 @@ def discover_models(models_filter=None):
     found = []
     for ckpt in sorted(glob.glob("checkpoints/dgcnn_*.pt")):
         name = os.path.basename(ckpt).replace("dgcnn_", "").replace(".pt", "")
+        if name in ["best"]:
+            continue
         if name in ["config", "final"]:
             continue
         if models_filter and name not in models_filter:
